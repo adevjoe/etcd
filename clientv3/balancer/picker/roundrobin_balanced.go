@@ -15,7 +15,6 @@
 package picker
 
 import (
-	"context"
 	"sync"
 
 	"go.uber.org/zap"
