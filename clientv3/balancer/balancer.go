@@ -194,7 +194,7 @@ func (bb *baseBalancer) HandleResolvedAddrs(addrs []resolver.Address, err error)
 }
 
 // HandleSubConnStateChange implements "grpc/balancer.Balancer" interface.
-func (bb *baseBalancer) HandleSubConnStateChange(sc balancer.SubConn, s grpcconnectivity.State) {
+func (bb *baseBalancer) UpdateSubConnState(sc balancer.SubConn, s balancer.SubConnState) {
 	bb.mu.Lock()
 	defer bb.mu.Unlock()
 
@@ -206,7 +206,7 @@ func (bb *baseBalancer) HandleSubConnStateChange(sc balancer.SubConn, s grpcconn
 			zap.String("balancer-id", bb.id),
 			zap.String("subconn", scToString(sc)),
 			zap.Int("subconn-size", len(bb.scToAddr)),
-			zap.String("state", s.String()),
+			zap.String("state", s.ConnectivityState.String()),
 		)
 		return
 	}
@@ -215,16 +215,16 @@ func (bb *baseBalancer) HandleSubConnStateChange(sc balancer.SubConn, s grpcconn
 		"state changed",
 		zap.String("picker", bb.picker.String()),
 		zap.String("balancer-id", bb.id),
-		zap.Bool("connected", s == grpcconnectivity.Ready),
+		zap.Bool("connected", s.ConnectivityState == grpcconnectivity.Ready),
 		zap.String("subconn", scToString(sc)),
 		zap.Int("subconn-size", len(bb.scToAddr)),
 		zap.String("address", bb.scToAddr[sc].Addr),
 		zap.String("old-state", old.String()),
-		zap.String("new-state", s.String()),
+		zap.String("new-state", s.ConnectivityState.String()),
 	)
 
-	bb.scToSt[sc] = s
-	switch s {
+	bb.scToSt[sc] = s.ConnectivityState
+	switch s.ConnectivityState {
 	case grpcconnectivity.Idle:
 		sc.Connect()
 	case grpcconnectivity.Shutdown:
@@ -235,19 +235,23 @@ func (bb *baseBalancer) HandleSubConnStateChange(sc balancer.SubConn, s grpcconn
 	}
 
 	oldAggrState := bb.connectivityRecorder.GetCurrentState()
-	bb.connectivityRecorder.RecordTransition(old, s)
+	bb.connectivityRecorder.RecordTransition(old, s.ConnectivityState)
 
 	// Update balancer picker when one of the following happens:
 	//  - this sc became ready from not-ready
 	//  - this sc became not-ready from ready
 	//  - the aggregated state of balancer became TransientFailure from non-TransientFailure
 	//  - the aggregated state of balancer became non-TransientFailure from TransientFailure
-	if (s == grpcconnectivity.Ready) != (old == grpcconnectivity.Ready) ||
+	if (s.ConnectivityState == grpcconnectivity.Ready) != (old == grpcconnectivity.Ready) ||
 		(bb.connectivityRecorder.GetCurrentState() == grpcconnectivity.TransientFailure) != (oldAggrState == grpcconnectivity.TransientFailure) {
 		bb.updatePicker()
 	}
 
-	bb.currentConn.UpdateBalancerState(bb.connectivityRecorder.GetCurrentState(), bb.picker)
+	state := balancer.State{
+		ConnectivityState: bb.connectivityRecorder.GetCurrentState(),
+		Picker:            bb.picker,
+	}
+	bb.currentConn.UpdateState(state)
 }
 
 func (bb *baseBalancer) updatePicker() {
@@ -290,4 +294,13 @@ func (bb *baseBalancer) updatePicker() {
 // and it doesn't need to call RemoveSubConn for the SubConns.
 func (bb *baseBalancer) Close() {
 	// TODO
+}
+
+func (bb *baseBalancer) ResolverError(err error) {
+	// TODO
+}
+
+func (bb *baseBalancer) UpdateClientConnState(conn balancer.ClientConnState) error {
+	// TODO
+	return nil
 }
