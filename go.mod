@@ -1,4 +1,4 @@
-module github.com/coreos/etcd
+module github.com/coreos/etcd/v3
 
 go 1.17
 
